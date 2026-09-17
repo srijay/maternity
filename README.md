@@ -1,260 +1,367 @@
 # MatraCare
 
-A maternity guide prototype with a JavaScript frontend on Netlify and a Python LangChain backend on Vercel. LangChain's `ChatOpenAI` uses the OpenAI client internally with your Groq key and Groq's endpoint. No OpenAI key is needed.
+A maternity guide with a JavaScript frontend on Netlify and a Python LangChain backend on Vercel. LangChain's ChatOpenAI uses the OpenAI client with a Groq key and Groq's endpoint. The model runs on Groq, not on your Mac, and no OpenAI API key is required.
 
-The LLM workflow is `ChatPromptTemplate -> ChatOpenAI -> StrOutputParser`. Vercel's standard Python HTTP handlers expose it to the frontend, with no FastAPI dependency. `backend/app.py` contains the chain and validation; `backend/api/` contains the function entrypoints.
+## Project addresses
 
-Start with [Local development](#local-development) to test the full website. For publishing, follow [Deploy the backend first](#deploy-the-backend-first), [Connect the frontend](#connect-the-frontend), then [Update your existing Netlify site](#update-your-existing-netlify-site).
-
-## Setup reference
-
-| Setting | Local testing | Production |
-| --- | --- | --- |
-| Website | `http://localhost:8080` | Your existing Netlify URL |
-| Backend origin | `http://localhost:8001` | Your Vercel production URL |
-| Health check | `GET http://localhost:8001/health` | `GET https://your-backend.vercel.app/health` |
-| Question endpoint | `POST http://localhost:8001/api/ask` | `POST https://your-backend.vercel.app/api/ask` |
-| `config.js` / `apiBaseUrl` | Empty string | Vercel origin, without `/api/ask` |
-| Groq key | `backend/.env` | Vercel environment variables |
-| Python entrypoint | `backend/dev.py` | `backend/api/ask.py` and `backend/api/health.py` |
-
-Prerequisites: Python 3.10+ locally (the existing environment uses 3.11), Node.js 18+ for the frontend build, and a Groq API key. Production uses Python 3.12 from `backend/.python-version`. Deployment also requires Vercel and Netlify accounts; GitHub is optional if using Vercel CLI and manual Netlify uploads.
-
-The frontend server serves files from `dist/`; JavaScript runs in your browser. The browser sends JSON to Python, and Python calls the model hosted by Groq. No model runs on your Mac. `GET /health` only checks configuration; **Test LLM** makes a real provider call.
-
-## Deploy the backend first
-
-1. Upload this project to a private GitHub repository, or use the CLI alternative below. Keep `backend/` as a subfolder of the repository. Never commit real API keys or `.env` files; `.gitignore` excludes them. Confirm the repository contains `backend/requirements.txt`, `backend/vercel.json`, and `backend/api/`.
-2. In Vercel, choose **Add New > Project** and import the repository.
-3. Set **Root Directory** to `backend` and **Framework Preset** to **Other**. Leave build command and output directory unset. Vercel detects the Python functions under `api/`; `vercel.json` configures the health alias and function timeout. `.python-version` selects Python 3.12. If updating an existing FastAPI project, remove its old framework/build overrides.
-4. Set the following Vercel environment variables for Production (and Preview if you plan to test preview deployments):
-
-| Variable | Value |
+| Purpose | Address |
 | --- | --- |
-| `GROQ_API_KEY` | Your existing Groq key |
-| `GROQ_MODEL` | `openai/gpt-oss-120b` |
-| `ALLOWED_ORIGINS` | `https://fantastic-youtiao-51e03c.netlify.app` |
+| Current project directory | /Users/srijaydeshpande/Desktop/Srijay/codes/maternity |
+| Production backend | https://maternity-taupe.vercel.app |
+| Production health check | https://maternity-taupe.vercel.app/health |
+| Direct health function | https://maternity-taupe.vercel.app/api/health |
+| Production question endpoint | POST https://maternity-taupe.vercel.app/api/ask |
+| Existing frontend | https://fantastic-youtiao-51e03c.netlify.app |
+| Local backend | http://localhost:8001 |
+| Local frontend | http://localhost:8080 |
+| Optional local frontend port | http://localhost:8082 |
 
-Use your actual Netlify origin if you have renamed the site. Multiple origins are comma-separated, without paths. The model is controlled by the backend, not visitors.
+The folder is now named **maternity**. All commands below use the new location. If your Netlify site has since been renamed, use its current origin wherever the old Netlify address appears.
 
-5. Deploy and copy the stable production URL, such as `https://your-backend.vercel.app`. Avoid temporary preview/deployment URLs.
-6. Open `/health` on that URL. Expect `{"status":"ok","provider":"groq","configured":true}`. This confirms configuration but does not call Groq.
-7. Verify a real Groq response with the command below (replace the example hostname). There is no FastAPI `/docs` page now.
-8. Ensure the production API is accessible without a Vercel login. If Deployment Protection protects production, adjust it for this API project. Never embed bypass secrets in frontend code.
+Start with [Local testing](#local-testing). To publish, follow [Vercel deployment](#vercel-deployment), then [Netlify deployment](#netlify-deployment). Updating the existing Netlify project preserves its URL.
 
-Test the production API (replace the example hostname):
+## How the project is connected
 
-```bash
-curl https://your-backend.vercel.app/api/ask \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"Reply with: ready"}'
-```
+~~~text
+Browser running app.js
+    -> POST /api/ask on the Python backend
+    -> input validation and urgent-symptom checks
+    -> LangChain prompt -> ChatOpenAI -> text parser
+    -> Groq
+    -> JSON answer back to the browser
+~~~
 
-### Vercel CLI alternative without Git
+| File | Responsibility |
+| --- | --- |
+| index.html, styles.css, app.js, assets/ | Website UI and browser behavior |
+| config.js | Backend address selection |
+| scripts/build-frontend.mjs | Copies only public frontend files into dist/ |
+| backend/dev.py | Local Python HTTP server on port 8001 |
+| backend/http_api.py | JSON requests, responses, CORS, and HTTP methods |
+| backend/app.py | Loads .env, validates questions, and calls the LangChain chain |
+| backend/api/ask.py | Vercel entrypoint inheriting AskHandler |
+| backend/api/health.py | Vercel entrypoint inheriting HealthHandler |
+| backend/vercel.json | Vercel function settings and /health rewrite |
+| backend/requirements.txt | Python dependencies |
+| netlify.toml | Frontend build and publish settings |
 
-From your project folder:
+The small Vercel entrypoints use inheritance: their classes contain "pass" because the implementation lives in the shared handlers. Locally, dev.py imports those shared handlers directly. On Vercel, the platform runs the functions; do not start dev.py there.
 
-```bash
-npm install -g vercel
-cd backend
-vercel login
-vercel
-```
+The frontend server only serves files. JavaScript runs in the browser and calls the backend directly. Different ports/domains require CORS permission. CORS is not authentication and does not prevent requests from scripts.
 
-Follow the prompts to create or link your backend project. The current directory is already `backend`, so use `.` as the code directory, not another nested `backend`. Use the Other framework preset with no custom build command or output directory. The initial deployment is a preview and may be protected or lack your production key.
+## Local testing
 
-In that Vercel project's settings, add the Production environment variables from the table above. Then, still in `backend/`, run:
+### 1. Activate the Python environment
 
-```bash
-vercel --prod
-```
+Requirements: Python 3.10+ and Node.js 18+. This Mac's LangChain environment uses Python 3.11; Vercel is configured for Python 3.12.
 
-Use the stable production URL shown for the project and run the health and Groq checks above. Return to the repository root with `cd ..` before running frontend build commands. You do not run `dev.py` on Vercel; Vercel starts the handlers for incoming requests.
+Open Terminal 1:
 
-## Connect the frontend
-
-Set your Vercel production origin in root `config.js`:
-
-```javascript
-window.MATRACARE_CONFIG = {
-  apiBaseUrl: "https://your-backend.vercel.app"
-};
-```
-
-Do not append `/api/ask`. This address is public; API keys belong only in Vercel environment variables. The deployed frontend reports an unconfigured service until this URL is set.
-
-## Update your existing Netlify site
-
-Deploy Vercel and verify it BEFORE updating Netlify. If using automatic Git deployment, pause Netlify auto-publishing while preparing the migration, then resume once the backend URL is configured. Local edits do not change your live site.
-
-Use the EXISTING Netlify project for `https://fantastic-youtiao-51e03c.netlify.app`. Do not create a new Netlify project or rename it. Updating its deployment keeps its current URL.
-
-### Manual folder upload
-
-1. From the repository root, run the following with Node.js 18 or later:
-
-```bash
-node scripts/build-frontend.mjs
-```
-
-2. Open your existing Netlify project's **Deploys** page.
-3. Upload the generated `dist/` folder in that site's manual deploy area. Upload only `dist/`, not the source repository.
-4. Open your existing website URL and click **Test LLM**.
-
-### Git deployment
-
-1. Connect this repository to the existing Netlify project, or push to its already linked repository.
-2. Use the repository root as the base directory, build command `node scripts/build-frontend.mjs`, and publish directory `dist`. These settings are in `netlify.toml`.
-3. Remove any old dashboard Functions directory override (`netlify/functions`). There is no Netlify backend now.
-4. Deploy after `config.js` contains the working Vercel URL.
-
-After verifying a non-urgent question and **Test LLM**, remove obsolete Groq variables from Netlify. Keep them on Vercel. Urgent questions use local guidance, so they do not test API connectivity. Vercel environment changes require a redeploy.
-
-### Verify the complete deployment
-
-1. Open the Vercel `/health` URL and confirm `configured` is `true`.
-2. Send the test `POST /api/ask` request above and confirm it returns an answer.
-3. Open your existing Netlify URL, refresh, and click **Test LLM**. Then submit a non-urgent question.
-4. In browser Developer Tools > Network, check that the `ask` request goes to your Vercel origin, not localhost. If curl succeeds but the browser fails, check CORS and Deployment Protection.
-5. Stop local servers and reload the deployed Netlify site. It should still answer through Vercel and Groq. Local Python processes are not required in production.
-
-For a renamed Netlify site, custom domain, or preview frontend, add that exact origin to Vercel's `ALLOWED_ORIGINS` and redeploy. Only add localhost there if you deliberately want a local frontend to call the production backend.
-
-## Local development
-
-### Terminal 1: activate the environment and start the backend
-
-The LangChain environment already exists on this Mac at:
-
-```text
-/Users/srijaydeshpande/Desktop/Srijay/codes/maternity_help/backend/.venv-langchain
-```
-
-It uses Python 3.11.15. Do not recreate it or use the older `backend/.venv` environment. In your zsh terminal, run:
-
-```bash
-cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity_help
+~~~bash
+cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
 source backend/.venv-langchain/bin/activate
 command -v python
 python --version
-
-cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity_help
-source backend/.venv-langchain/bin/activate
-python backend/dev.py
-```
-
-The Python path should end in `backend/.venv-langchain/bin/python`. Your prompt will usually show `(.venv-langchain)`. Activation applies only to this terminal; repeat it in a new backend terminal.
-
-Install dependencies:
-
-```bash
 python -m pip install -r backend/requirements.txt
-```
+~~~
 
-Open `backend/.env` in your editor. This file has already been created on this Mac. Set the key there:
+The Python path must end in **maternity/backend/.venv-langchain/bin/python**. Your prompt will usually show (.venv-langchain). Activation applies only to this terminal. Use .venv-langchain, not the older .venv environment.
 
-```dotenv
+If setting up a fresh clone and the environment does not exist, create it before activation:
+
+~~~bash
+python3.11 -m venv backend/.venv-langchain
+~~~
+
+Use an installed Python 3.10+ interpreter if python3.11 is unavailable. If you move the project again, virtual environments may retain absolute paths; recreate the environment at the new location rather than committing it to Git.
+
+### 2. Put your Groq key in backend/.env
+
+Open backend/.env in your editor. On a fresh clone, create it using backend/.env.example as a template. Keep these settings:
+
+~~~dotenv
 GROQ_API_KEY=your_actual_groq_key
 GROQ_MODEL=openai/gpt-oss-120b
-ALLOWED_ORIGINS=https://fantastic-youtiao-51e03c.netlify.app,http://localhost:8080,http://127.0.0.1:8080
-```
+ALLOWED_ORIGINS=https://fantastic-youtiao-51e03c.netlify.app,http://localhost:8080,http://127.0.0.1:8080,http://localhost:8082,http://127.0.0.1:8082
+~~~
 
-The backend automatically loads this exact file, regardless of your terminal's working directory. Do not put the key in `config.js`, `app.js`, or HTML. `.gitignore` and `.vercelignore` exclude `.env`; the Netlify build copies only public frontend files. On a fresh clone, create `backend/.env` using `backend/.env.example` as a template.
+Replace only the key placeholder with your actual key. No terminal key entry is required.
 
-Existing environment variables take precedence over `.env`. If you previously exported these settings in this terminal, run `unset GROQ_API_KEY GROQ_MODEL ALLOWED_ORIGINS` once so the file's values are used. For production, keep setting the key in Vercel's environment-variable settings; do not upload `.env`.
+The backend loads backend/.env at startup, independent of the working directory. Existing environment variables take precedence. If you previously exported these settings in Terminal 1, clear them once before starting:
 
-Start the backend from the same activated terminal:
+~~~bash
+unset GROQ_API_KEY GROQ_MODEL ALLOWED_ORIGINS
+~~~
 
-```bash
+Never put the key in config.js, app.js, or HTML. .gitignore and .vercelignore exclude .env files; the frontend build publishes only an explicit list of public files. Production uses Vercel environment variables, not your local .env file.
+
+### 3. Start the backend in Terminal 1
+
+From the project root, with the environment activated:
+
+~~~bash
 python backend/dev.py
-```
+~~~
 
-Keep this terminal open. Visit `http://localhost:8001/health`; `configured: true` means the key is present, but does not verify it with Groq. Restart the backend whenever you change `.env`. If port 8001 is occupied, stop the existing backend with Ctrl+C in its terminal, then start this one.
+Keep this terminal running. Open http://localhost:8001/health. The expected response after adding your key is:
 
-The backend is an API, not the website. Opening `http://localhost:8001/` returns `Method not allowed` because there is no homepage there. Open `/health` to check the backend, or the frontend on port 8080 to use the website.
+~~~json
+{"status":"ok","provider":"groq","configured":true}
+~~~
 
-### Terminal 2: test Groq and start the frontend
+This confirms the key is present, not that Groq accepts it. The backend root http://localhost:8001/ is not a homepage and returns "Method not allowed". Restart the backend after editing Python files or .env; dev.py does not auto-reload.
 
-This terminal does not need virtual-environment activation. First test a real Groq call:
+### 4. Test an actual Groq call
 
-```bash
-cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity_help
-curl http://localhost:8001/api/ask \
+Open Terminal 2:
+
+~~~bash
+cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
+curl -i http://localhost:8001/api/ask \
   -H 'Content-Type: application/json' \
   -d '{"question":"Reply with: ready"}'
-```
+~~~
 
-Expect JSON containing `answer` and `model`. For local testing, set `apiBaseUrl` to an empty string in `config.js`:
+Expect HTTP 200 and JSON with answer and model. This test calls Groq and uses provider quota. The model is hosted by Groq even though its name starts with openai/.
 
-```javascript
-window.MATRACARE_CONFIG = {
-  apiBaseUrl: ""
-};
-```
+### 5. Build and start the frontend in Terminal 2
 
-Build and serve the frontend:
+No virtual-environment activation is needed for this terminal.
 
-```bash
+~~~bash
 node scripts/build-frontend.mjs
 python3 -m http.server 8080 --bind 127.0.0.1 --directory dist
-```
+~~~
 
-Visit `http://localhost:8080`, click **Test LLM**, then submit a non-urgent question. Urgent questions use local guidance and do not verify Groq connectivity. If the frontend already runs on port 8080, rebuild and refresh that preview instead of starting a second server.
+Open **http://localhost:8080**, click **Test LLM**, then submit a non-urgent question. Urgent questions use built-in guidance and do not verify Groq connectivity.
 
-A blank `apiBaseUrl` uses `http://localhost:8001` on localhost only. Restore the production Vercel URL before deployment. After frontend edits, rerun `node scripts/build-frontend.mjs` and refresh the browser. Local browser origins are allowed by default; if you override `ALLOWED_ORIGINS`, include `http://localhost:8080`. If you change the backend port again, update the local default in `app.js` too and rebuild.
+config.js detects localhost and leaves apiBaseUrl empty there; app.js then uses http://localhost:8001. When hosted on Netlify, the same configuration uses https://maternity-taupe.vercel.app. You do not need to switch configuration values between local testing and deployment.
 
-### Automated tests and stopping
+After frontend edits, rebuild dist/ and refresh the browser. Do not edit generated files inside dist/ directly or open index.html with a file:// URL.
 
-In a separate terminal, run tests without a real key or API charges:
+### 6. Optional: use frontend port 8082
 
-```bash
-cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity_help
+Instead of starting the frontend on 8080, run:
+
+~~~bash
+python3 -m http.server 8082 --bind 127.0.0.1 --directory dist
+~~~
+
+Open **http://localhost:8082**. Keep the backend on 8001. Ensure the 8082 origins shown in the .env example above are present, then restart the backend. No frontend API URL change is required.
+
+### 7. Address already in use and background servers
+
+A server started by the coding assistant can remain running without a terminal window you opened. These are ordinary local Python processes and do not require the assistant to stay available.
+
+Inspect occupied ports:
+
+~~~bash
+lsof -nP -iTCP:8001 -sTCP:LISTEN
+lsof -nP -iTCP:8080 -sTCP:LISTEN
+lsof -nP -iTCP:8082 -sTCP:LISTEN
+~~~
+
+If the existing frontend serves this project's dist/, reuse it. For a fresh restart, press Ctrl+C in its terminal. For a background process, replace PID below with the number from lsof, inspect it, and stop it only after confirming it is your project server:
+
+~~~bash
+ps -p PID -o command=
+kill PID
+~~~
+
+Then start the documented command in your own terminal. After restarting your Mac, start both servers again. Stop each server with Ctrl+C and run deactivate to leave the virtual environment.
+
+### 8. Run automated backend tests
+
+In a separate terminal:
+
+~~~bash
+cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
 source backend/.venv-langchain/bin/activate
 cd backend
 python -m unittest discover -s tests -v
-```
+~~~
 
-Stop each server with Ctrl+C in its terminal. Then run `deactivate` to leave an activated environment. Your key remains in `backend/.env` for the next run.
+These tests mock Groq responses and do not spend API quota. They cover request validation, health, CORS, urgent-response bypass, the LangChain/OpenAI request format, and provider errors.
 
-On another machine, create the environment first with `python3.11 -m venv backend/.venv-langchain` (or use an installed Python 3.10+ interpreter). Vercel uses Python 3.12.
+## Vercel deployment
 
-### Address already in use or no visible terminal
+Deploy or verify the backend first. Your existing production origin is **https://maternity-taupe.vercel.app**. Use that project's dashboard to update it rather than creating another project.
 
-A preview started by the coding assistant can keep running as a background process even if you did not open a second terminal. Do not start a duplicate server. On macOS, inspect the listeners:
+### 1. Prepare the repository
 
-```bash
-lsof -nP -iTCP:8080 -sTCP:LISTEN
-lsof -nP -iTCP:8001 -sTCP:LISTEN
-```
+Push the project to its Git repository, including backend/api/, backend/requirements.txt, backend/.python-version, and backend/vercel.json. Do not upload .env, virtual environments, or API keys. Use the CLI alternative below if you do not want Git-based deployment.
 
-If port 8080 is already serving this project's `dist/`, open `http://localhost:8080` and reuse it. Rebuild the frontend after edits and refresh. If a backend is already running, check `/health`; restart it after changing Python files or `.env` because `dev.py` does not auto-reload.
+If Netlify is already connected to the same repository, pause its automatic publishing during initial migration until the backend and frontend configuration are ready.
 
-To take control of a background preview, identify its PID from `lsof` and inspect it with `ps -p PID -o command=` (replace `PID` with the number). Only after confirming it is your project server, stop it with `kill PID`, then start the documented server command in your own terminal. Do not stop unrelated processes. No fixed PID is recorded here because process IDs change.
+### 2. Set Vercel project settings
 
-If you choose a different frontend port, add its origin to `ALLOWED_ORIGINS` in `backend/.env` and restart Python. If you change the backend port, update `dev.py` and the local URL in `app.js`, then rebuild `dist/`.
+For a repository containing the whole project:
 
-## Troubleshooting
+| Setting | Value |
+| --- | --- |
+| Root Directory | backend |
+| Framework Preset | Other |
+| Build Command | No custom override |
+| Output Directory | No custom override |
+| Python | 3.12, from backend/.python-version |
 
-- Connection/CORS error: verify `config.js`, production Deployment Protection, and the exact website origin in `ALLOWED_ORIGINS`. Redeploy after changes.
-- Health works but answers fail: check the Groq key, model, and quota. Health does not validate the key with Groq.
-- Model unavailable: use a model enabled for your Groq account, update `GROQ_MODEL` in `backend/.env`, and restart the backend. The `openai/gpt-oss-120b` model here runs through Groq with your Groq key, not OpenAI's API.
-- HTML or 404 instead of JSON: verify the Vercel root is `backend` and try `/health` directly.
-- 429: Groq rate limit. Wait or adjust provider quota.
-- Timeout: backend Groq timeout is 25 seconds; frontend deadline is 35 seconds.
-- Changes not visible: rebuild `dist/` after frontend edits and refresh the browser. Restart `dev.py` after backend or `.env` edits. Redeploy the appropriate service for production changes.
-- Local API works but deployed site fails: restore the Vercel URL in `config.js`, rebuild, and redeploy Netlify. An empty URL only has a localhost default; it does not configure production.
+Remove any old FastAPI framework/build overrides. This project uses file-based Python handlers under api/, not a FastAPI application. If importing for the first time, use Add New > Project and apply these same settings.
 
-Netlify publishes only frontend assets through `scripts/build-frontend.mjs`. The backend API is public: CORS restricts browsers, not callers using scripts. Authentication and shared rate limiting would be additional work before wider public use.
+Vercel maps api/ask.py to /api/ask and api/health.py to /api/health. The included vercel.json rewrites /health to /api/health and sets a 60-second function limit.
 
-## Medical Safety
+### 3. Add production environment variables
 
-This remains an educational prototype. The existing prompt and keyword checks are retained, with bleeding checked on the server as it already was in the browser. These checks are not clinically validated triage. PubMed retrieval is not implemented by this migration.
+In the Vercel project's Settings > Environment Variables, enter:
+
+| Name | Production value |
+| --- | --- |
+| GROQ_API_KEY | Your actual Groq key |
+| GROQ_MODEL | openai/gpt-oss-120b |
+| ALLOWED_ORIGINS | https://fantastic-youtiao-51e03c.netlify.app |
+
+Select Production. Add Preview values separately if testing preview deployments. Use the actual current Netlify origin if renamed; multiple origins are comma-separated, without paths or trailing slashes.
+
+Your local .env is not deployed. Save these variables in Vercel and redeploy for changes to take effect.
+
+### 4. Deploy and check access
+
+Deploy the latest commit, or redeploy the existing project after settings changes. Wait for the deployment status to be Ready. Ensure the production domain remains **maternity-taupe.vercel.app**.
+
+The API must be accessible without a Vercel login to serve public website visitors. If production Deployment Protection blocks it, adjust that project's protection settings. Never put bypass secrets in frontend code.
+
+### 5. Verify the backend endpoints
+
+Open these URLs:
+
+- https://maternity-taupe.vercel.app/health
+- https://maternity-taupe.vercel.app/api/health
+
+Both should return JSON with status "ok". Then test a real answer:
+
+~~~bash
+curl -i https://maternity-taupe.vercel.app/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Reply with: ready"}'
+~~~
+
+Expect HTTP 200 with answer and model. Do not assume a Ready deployment or a configured health check proves Groq calls work.
+
+Opening **https://maternity-taupe.vercel.app/** may show "This page doesn't exist": there is no root homepage in the backend. There is also no /docs page. The website itself lives on Netlify.
+
+If /health fails but /api/health works, check that backend/vercel.json is included and the Root Directory is correct. If both return 404, check the deployed commit, Root Directory, framework preset, and whether api/ask.py and api/health.py appear as deployed functions. If a function returns 500, inspect Vercel runtime logs for import or dependency errors. An HTML login response indicates access protection, not a Groq error.
+
+### Vercel CLI alternative
+
+For the existing Git-linked project whose Root Directory is backend, run the CLI from the repository root so that setting is applied exactly once:
+
+~~~bash
+cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
+npm install -g vercel
+vercel login
+vercel link
+vercel --prod
+~~~
+
+When linking, select the existing project associated with maternity-taupe.vercel.app. Check environment variables and run the endpoint tests above afterward.
+
+For a separate backend-only CLI project with no repository-root configuration, run from backend/ and use "." as its code directory; do not also set a nested backend Root Directory. Avoid creating a second project when updating your existing production URL.
+
+## Netlify deployment
+
+### 1. Confirm the production backend address
+
+The production value in config.js must be:
+
+~~~javascript
+"https://maternity-taupe.vercel.app"
+~~~
+
+The checked-in config selects the local backend automatically on localhost. It uses the Vercel origin everywhere else. Do not append /api/ask and do not put a Groq key in this file.
+
+### 2. Build the public frontend
+
+From the repository root:
+
+~~~bash
+cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
+node scripts/build-frontend.mjs
+~~~
+
+The generated dist/ contains index.html, styles.css, app.js, config.js, and assets/. It does not contain the Python backend or .env.
+
+### 3. Update the existing Netlify site
+
+Use the existing Netlify project for **https://fantastic-youtiao-51e03c.netlify.app**. Do not create or rename a site. Updating its deployment preserves its address.
+
+Choose one deployment method.
+
+**Manual upload**
+
+1. Open the existing site's Deploys page.
+2. Upload the generated dist/ folder using that site's deployment dropzone.
+3. Wait for the production deployment to finish.
+4. Refresh the existing website URL.
+
+Build locally before manual upload. Upload dist/, not the entire source repository.
+
+**Git deployment**
+
+1. Connect the repository to the existing Netlify project, or keep its current repository connection.
+2. Use the settings below, which match netlify.toml.
+3. Remove an old Functions directory override pointing to netlify/functions.
+4. Push the configuration and source changes, then trigger or allow the production build.
+
+| Setting | Value |
+| --- | --- |
+| Base directory | Repository root |
+| Build command | node scripts/build-frontend.mjs |
+| Publish directory | dist |
+| Backend functions | None on Netlify |
+
+The Groq key belongs only on Vercel. Remove obsolete Netlify Groq variables after the new deployment works.
+
+### 4. Verify the complete deployment
+
+1. Confirm the Vercel health and real-answer tests pass.
+2. Open https://fantastic-youtiao-51e03c.netlify.app and click Test LLM.
+3. Submit a non-urgent question.
+4. In browser Developer Tools > Network, inspect the ask request. It should go to https://maternity-taupe.vercel.app/api/ask, not localhost.
+5. Stop your local servers and reload the deployed website. It should still work.
+
+If curl works but the browser fails, check ALLOWED_ORIGINS, Deployment Protection, and the browser's OPTIONS preflight request. Include every frontend origin you actually use: the Netlify domain, a custom domain, or an approved preview origin. Redeploy Vercel after changing the list.
+
+Local ports 8001, 8080, and 8082 are not production ports. Visitors use the HTTPS domains, and your Mac does not need to remain running.
+
+## Updating and troubleshooting
+
+| Symptom or change | Action |
+| --- | --- |
+| Key rejected | Correct GROQ_API_KEY in local .env or Vercel settings, then restart/redeploy |
+| Model unavailable | Choose an enabled Groq model, update GROQ_MODEL, then restart/redeploy |
+| Health says configured but answers fail | Health only checks key presence; use the real POST test |
+| Groq rate limit / 429 | Wait or review provider quota |
+| API timeout | Groq timeout is 25 seconds; browser deadline is 35 seconds |
+| Frontend edits not visible | Rebuild dist/ and refresh locally; rebuild/redeploy Netlify in production |
+| Backend edits not visible | Restart dev.py locally or redeploy Vercel |
+| .env edits not taking effect | Restart Python; clear previously exported variables that override the file |
+| Moved folder breaks activation or pip | Check command -v python; repair/recreate the venv at the new location |
+| Root Vercel URL returns 404 | Test /health and /api/health; the backend has no homepage |
+| Netlify homepage returns 404 | Confirm dist/index.html is in the published deployment |
+| Wrong frontend port causes CORS error | Add its full origin to ALLOWED_ORIGINS and restart Python |
+
+Do not rely on error messages alone to verify where requests go: the browser Network panel shows the destination, request payload, HTTP status, and JSON response. Avoid sharing API keys or sensitive user questions when reporting errors.
+
+## Project limitations and hosting
+
+This is an educational prototype. Existing urgent-keyword checks are not clinically validated triage. The app does not yet retrieve PubMed articles, store conversation history, or implement authentication and shared rate limiting. LangChain orchestrates the model call; it does not automatically add research retrieval.
+
+Vercel Hobby is intended for personal, non-commercial use within its limits. Groq usage and quotas are separate from website hosting. Check provider terms before launching a commercial service.
 
 ## References
 
-- [Python functions on Vercel](https://vercel.com/docs/functions/runtimes/python)
-- [Creating Netlify deployments](https://docs.netlify.com/deploy/create-deploys/)
-- [LangChain ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai)
-- [Groq OpenAI client compatibility](https://console.groq.com/docs/openai)
-- [Vercel Hobby fair-use rules](https://vercel.com/docs/limits/fair-use-guidelines): free hosting is for personal, non-commercial use within quotas. Groq usage is separate.
-# maternity
+- [Vercel file-based Python functions](https://vercel.com/docs/functions/runtimes/python/api-directory)
+- [Vercel Python runtime and versions](https://vercel.com/docs/functions/runtimes/python)
+- [Netlify deployment methods](https://docs.netlify.com/deploy/create-deploys/)
+- [LangChain ChatOpenAI integration](https://docs.langchain.com/oss/python/integrations/chat/openai)
+- [Groq OpenAI compatibility](https://console.groq.com/docs/openai)
+- [Vercel fair-use rules](https://vercel.com/docs/limits/fair-use-guidelines)

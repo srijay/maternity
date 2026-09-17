@@ -2,6 +2,8 @@
 
 A maternity guide with a JavaScript frontend on Netlify and a Python LangChain backend on Vercel. LangChain's ChatOpenAI uses the OpenAI client with a Groq key and Groq's endpoint. The model runs on Groq, not on your Mac, and no OpenAI API key is required.
 
+Instructions reviewed against the project configuration and hosting documentation on September 17, 2026.
+
 ## Project addresses
 
 | Purpose | Address |
@@ -55,10 +57,21 @@ The frontend server only serves files. JavaScript runs in the browser and calls 
 
 Requirements: Python 3.10+ and Node.js 18+. This Mac's LangChain environment uses Python 3.11; Vercel is configured for Python 3.12.
 
-Open Terminal 1:
+Open Terminal 1 and enter the project directory:
 
 ~~~bash
 cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
+~~~
+
+On this Mac, the environment already exists at the corrected location. Only for a fresh clone where it does not exist, create it first:
+
+~~~bash
+python3.11 -m venv backend/.venv-langchain
+~~~
+
+Then activate it and install dependencies:
+
+~~~bash
 source backend/.venv-langchain/bin/activate
 command -v python
 python --version
@@ -67,13 +80,7 @@ python -m pip install -r backend/requirements.txt
 
 The Python path must end in **maternity/backend/.venv-langchain/bin/python**. Your prompt will usually show (.venv-langchain). Activation applies only to this terminal. Use .venv-langchain, not the older .venv environment.
 
-If setting up a fresh clone and the environment does not exist, create it before activation:
-
-~~~bash
-python3.11 -m venv backend/.venv-langchain
-~~~
-
-Use an installed Python 3.10+ interpreter if python3.11 is unavailable. If you move the project again, virtual environments may retain absolute paths; recreate the environment at the new location rather than committing it to Git.
+Use an installed Python 3.10+ interpreter if python3.11 is unavailable. Node.js 18+ is sufficient for the frontend build script; use a currently supported Node.js LTS release for installing hosting CLIs. If you move the project again, virtual environments may retain absolute paths; recreate the environment at the new location rather than committing it to Git.
 
 ### 2. Put your Groq key in backend/.env
 
@@ -191,6 +198,8 @@ Deploy or verify the backend first. Your existing production origin is **https:/
 
 Push the project to its Git repository, including backend/api/, backend/requirements.txt, backend/.python-version, and backend/vercel.json. Do not upload .env, virtual environments, or API keys. Use the CLI alternative below if you do not want Git-based deployment.
 
+For this project, the GitHub repository is https://github.com/srijay/maternity and the production branch is main. Confirm the hosting projects track that repository and branch. Settings in the hosting dashboards cannot be verified from local files alone.
+
 If Netlify is already connected to the same repository, pause its automatic publishing during initial migration until the backend and frontend configuration are ready.
 
 ### 2. Set Vercel project settings
@@ -270,10 +279,14 @@ For a separate backend-only CLI project with no repository-root configuration, r
 
 ### 1. Confirm the production backend address
 
-The production value in config.js must be:
+The complete config.js should contain this local/production selection:
 
 ~~~javascript
-"https://maternity-taupe.vercel.app"
+window.MATRACARE_CONFIG = {
+  apiBaseUrl: ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? ""
+    : "https://maternity-taupe.vercel.app"
+};
 ~~~
 
 The checked-in config selects the local backend automatically on localhost. It uses the Vercel origin everywhere else. Do not append /api/ask and do not put a Groq key in this file.
@@ -303,6 +316,8 @@ Choose one deployment method.
 4. Refresh the existing website URL.
 
 Build locally before manual upload. Upload dist/, not the entire source repository.
+
+If the existing site uses Git-based deployment and does not show a manual dropzone, follow the Git deployment method below. Do not use a new-site dropzone, which would create another URL.
 
 **Git deployment**
 
@@ -334,6 +349,35 @@ Local ports 8001, 8080, and 8082 are not production ports. Visitors use the HTTP
 
 ## Updating and troubleshooting
 
+### Publish later changes through Git
+
+From the project root, inspect status and changes before committing:
+
+~~~bash
+git status
+git diff
+~~~
+
+Stage only the files you intentionally changed and commit them. For example, for a README-only edit:
+
+~~~bash
+git add README.md
+git commit -m "Update development and deployment instructions"
+~~~
+
+With a clean working tree, synchronize and push:
+
+~~~bash
+git pull --no-rebase origin main
+git push origin main
+~~~
+
+The explicit merge option preserves local and remote commits if the branches diverge. If Git reports conflicts, stop before pushing, resolve the marked files, stage them, and complete the merge commit. Do not force-push to solve ordinary divergence. Keep both localhost detection and the production Vercel URL when resolving config.js.
+
+Pushing main can trigger both connected hosting projects. Wait for their deployment results and repeat the endpoint and browser checks. If using manual Netlify deployment, Git push does not update that site: rebuild and upload dist/ separately. Environment-variable changes are made in the relevant host dashboard and require redeployment, not a Git commit containing the key.
+
+### Common issues
+
 | Symptom or change | Action |
 | --- | --- |
 | Key rejected | Correct GROQ_API_KEY in local .env or Vercel settings, then restart/redeploy |
@@ -361,6 +405,8 @@ Vercel Hobby is intended for personal, non-commercial use within its limits. Gro
 
 - [Vercel file-based Python functions](https://vercel.com/docs/functions/runtimes/python/api-directory)
 - [Vercel Python runtime and versions](https://vercel.com/docs/functions/runtimes/python)
+- [Vercel CLI deployment](https://vercel.com/docs/cli/deploy)
+- [Vercel repository root and CLI setup](https://vercel.com/docs/monorepos)
 - [Netlify deployment methods](https://docs.netlify.com/deploy/create-deploys/)
 - [LangChain ChatOpenAI integration](https://docs.langchain.com/oss/python/integrations/chat/openai)
 - [Groq OpenAI compatibility](https://console.groq.com/docs/openai)

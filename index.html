@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MatraCare | Maternity Journey Guide</title>
+    <meta
+      name="description"
+      content="A safety-first maternity companion for symptom triage, week-by-week pregnancy guidance, and source-backed next steps."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="MatraCare home">
+        <span class="brand-mark">M</span>
+        <span>MatraCare</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#assistant">Ask</a>
+        <a href="#symptoms">Symptoms</a>
+        <a href="#timeline">Timeline</a>
+        <a href="#planner">Planner</a>
+        <a href="#sources">Sources</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="home">
+        <img src="assets/maternity-hero.png" alt="Pregnant woman speaking with a maternity clinician" />
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <p class="eyebrow">Safety-first maternity guidance</p>
+          <h1>Know what to do next during pregnancy.</h1>
+          <p>
+            A guided companion for symptoms, appointments, nutrition, preparation, and questions to ask your clinician.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#assistant">Ask the guide</a>
+            <a class="button secondary" href="#red-flags">Check urgent signs</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="alert-strip" id="red-flags">
+        <div>
+          <strong>Emergency signs:</strong> heavy bleeding, severe abdominal pain, fainting, seizures, chest pain,
+          severe headache with vision changes, or reduced fetal movement after viability.
+        </div>
+        <button id="emergencyBtn" class="button danger">Show urgent steps</button>
+      </section>
+
+      <section class="workbench" id="assistant">
+        <div class="panel assistant-panel">
+          <div class="section-head">
+            <p class="eyebrow">LLM assistant</p>
+            <h2>Ask what to do next</h2>
+          </div>
+          <div class="profile-grid">
+            <label>
+              Pregnancy week
+              <input id="weekInput" type="number" min="1" max="42" value="24" />
+            </label>
+            <label>
+              Country
+              <select id="countryInput">
+                <option>United States</option>
+                <option>United Kingdom</option>
+                <option>India</option>
+                <option>Canada</option>
+                <option>Australia</option>
+              </select>
+            </label>
+            <label>
+              Known risk
+              <select id="riskInput">
+                <option>None known</option>
+                <option>High blood pressure</option>
+                <option>Diabetes</option>
+                <option>Previous pregnancy loss</option>
+                <option>Multiple pregnancy</option>
+              </select>
+            </label>
+            <label>
+              Model
+              <input id="modelInput" type="text" value="Configured by service" readonly />
+            </label>
+          </div>
+          <label class="question-box">
+            What are you feeling or deciding?
+            <textarea
+              id="questionInput"
+              rows="5"
+              placeholder="Example: I am 28 weeks pregnant and noticed bleeding after using the bathroom. What should I do next?"
+            ></textarea>
+          </label>
+          <div class="quick-prompts" aria-label="Common prompts">
+            <button data-prompt="I am bleeding during pregnancy. What should I do next?">Bleeding</button>
+            <button data-prompt="I feel reduced fetal movement today. What should I do next?">Reduced movement</button>
+            <button data-prompt="I feel hungry at night. What are safe food options?">Hungry</button>
+            <button data-prompt="I have a severe headache and blurry vision. What should I do next?">Headache</button>
+          </div>
+          <div class="assistant-actions">
+            <button id="askBtn" class="button primary">Get guidance</button>
+            <button id="testLlmBtn" class="button secondary" type="button">Test LLM</button>
+            <button id="clearBtn" class="button ghost">Clear</button>
+          </div>
+          <p class="connection-note" id="connectionNote">
+            Connection not tested.
+          </p>
+        </div>
+
+        <aside class="panel answer-panel" aria-live="polite">
+          <div class="section-head">
+            <p class="eyebrow">Response</p>
+            <h2>Next steps</h2>
+          </div>
+          <div id="answer" class="answer">
+            Choose a common prompt or describe what is happening. Urgent symptoms are handled before the LLM responds.
+          </div>
+        </aside>
+      </section>
+
+      <section class="band" id="symptoms">
+        <div class="section-head centered">
+          <p class="eyebrow">Symptom navigator</p>
+          <h2>Common situations</h2>
+        </div>
+        <div class="cards" id="symptomCards"></div>
+      </section>
+
+      <section class="timeline-section" id="timeline">
+        <div class="section-head">
+          <p class="eyebrow">Journey map</p>
+          <h2>Pregnancy timeline</h2>
+        </div>
+        <div class="timeline" id="timelineCards"></div>
+      </section>
+
+      <section class="planner" id="planner">
+        <div class="section-head">
+          <p class="eyebrow">Care planner</p>
+          <h2>Today’s checklist</h2>
+        </div>
+        <div class="checklist" id="checklist"></div>
+      </section>
+
+      <section class="sources" id="sources">
+        <div class="section-head">
+          <p class="eyebrow">Evidence model</p>
+          <h2>How answers should be sourced</h2>
+        </div>
+        <div class="source-grid">
+          <div><strong>1. Clinical guidelines</strong><span>ACOG, NICE, WHO, CDC, NHS, RCOG</span></div>
+          <div><strong>2. Local protocols</strong><span>Hospital, maternity unit, country-specific emergency advice</span></div>
+          <div><strong>3. Reviews</strong><span>Systematic reviews and meta-analyses before individual studies</span></div>
+          <div><strong>4. PubMed papers</strong><span>Used for background evidence, never as standalone patient advice</span></div>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal" id="urgentModal" role="dialog" aria-modal="true" aria-labelledby="urgentTitle" hidden>
+      <div class="modal-card">
+        <button class="icon-btn" id="closeModal" aria-label="Close">×</button>
+        <p class="eyebrow">Urgent guidance</p>
+        <h2 id="urgentTitle">Get medical help now</h2>
+        <p>
+          If symptoms are severe, sudden, or worrying, contact emergency services or your maternity unit now. Do not wait
+          for an online answer.
+        </p>
+        <ul>
+          <li>United States: call 911 for emergencies.</li>
+          <li>United Kingdom: call 999 for emergencies or NHS 111 for urgent advice.</li>
+          <li>Use your hospital maternity triage number if one was provided.</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer>
+      <strong>MatraCare</strong>
+      <span>Educational support only. It does not diagnose, prescribe, or replace a clinician.</span>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

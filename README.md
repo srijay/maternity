@@ -1,8 +1,19 @@
 # MatraCare
 
-A maternity guide with a JavaScript frontend on Netlify and a Python LangChain backend on Vercel. LangChain's ChatOpenAI uses the OpenAI client with a Groq key and Groq's endpoint. The model runs on Groq, not on your Mac, and no OpenAI API key is required.
+A maternity and clinical literature workspace with a JavaScript frontend on Netlify and a Python LangChain backend on Vercel. LangChain's ChatOpenAI uses the OpenAI client with a Groq key and Groq's endpoint. The model runs on Groq, not on your Mac, and no OpenAI API key is required. PubMed retrieval uses Biopython's Bio.Entrez (Entrez, not "Engrez").
 
-Instructions reviewed against the project configuration and hosting documentation on September 17, 2026.
+Updated for the evidence workflows on September 29, 2026. Existing Netlify and Vercel URLs are unchanged.
+
+## Workspaces
+
+- **Maternity support:** English urgent-keyword checks run first, including an offline browser warning. Otherwise, the maternity agent searches PubMed behind the scenes and returns a direct, plain-language answer, practical next steps and a brief uncertainty note. It does not show citations, papers or search records, and it does not replace professional care.
+- **Clinical research:** a separate agent gives an overall clinical interpretation using general model knowledge supplemented by retrieved PubMed abstracts, followed by cited findings, limitations and further appraisal. The overview distinguishes background knowledge from reported evidence; the UI labels model knowledge as unverified current guidance. An optional PubMed query can be supplied. This mode is literature research, not patient triage.
+- Both modes use exactly one agent.invoke(...) per non-urgent question, not separate query-generation or synthesis chains. The agent can make up to 4 model calls internally, execute up to 4 tool calls and retrieve at most 3 papers. Normally it uses 3 model calls: select search, select retrieval, then return the structured answer.
+- Only the selected specialist agent is created and invoked. Each has a short standalone prompt and its own answer schema; tools, validation infrastructure and call limits are shared. There is no supervisor agent or second synthesis call outside the agent.
+- The only retrieval tools are search_pubmed and retrieve_pubmed. Once usable abstracts are available, middleware exposes only the selected agent's registered MaternityAnswer or ClinicalAnswer output tool. The final answer is part of the same invocation. Neither mode falls back to a model-only answer when retrieval fails.
+- **Test LLM:** sends a fixed connection test to Groq without the question or PubMed. It does not verify evidence retrieval.
+
+Only the clinical workspace shows paper titles, journals, dates, publication types, abstract excerpts, PubMed links and a metadata table. Its search record includes submitted queries, NCBI translations and result counts. Only a small relevance-ranked sample is retrieved, not all PubMed articles. Maternity responses omit evidence metadata from the API payload as well as the page.
 
 ## Project addresses
 
@@ -27,10 +38,15 @@ Start with [Local testing](#local-testing). To publish, follow [Vercel deploymen
 ~~~text
 Browser running app.js
     -> POST /api/ask on the Python backend
-    -> input validation and urgent-symptom checks
-    -> LangChain prompt -> ChatOpenAI -> text parser
-    -> Groq
-    -> JSON answer back to the browser
+    -> input validation and maternity urgent-keyword checks
+    -> select maternity_support OR clinical_research
+       -> one LangChain create_agent(...).invoke(...)
+       -> search_pubmed -> retrieve_pubmed -> MaternityAnswer OR ClinicalAnswer
+       -> hard limits: 4 model calls, 4 tool calls, 3 papers
+    -> validate the selected schema; verify clinical PMIDs against usable abstracts
+    -> maternity: answer + next_steps + limitations (no evidence metadata)
+    -> clinical: overview + overview_pmids + findings + limitations + next_steps
+                 + sources + search record
 ~~~
 
 | File | Responsibility |
@@ -38,16 +54,15 @@ Browser running app.js
 | index.html, styles.css, app.js, assets/ | Website UI and browser behavior |
 | config.js | Backend address selection |
 | scripts/build-frontend.mjs | Copies only public frontend files into dist/ |
-| backend/dev.py | Local Python HTTP server on port 8001 |
-| backend/http_api.py | JSON requests, responses, CORS, and HTTP methods |
-| backend/app.py | Loads .env, validates questions, and calls the LangChain chain |
-| backend/api/ask.py | Vercel entrypoint inheriting AskHandler |
-| backend/api/health.py | Vercel entrypoint inheriting HealthHandler |
+| backend/app.py | All backend logic: configuration, two specialist agents, shared PubMed tools, answer validation, HTTP handlers and local server |
+| backend/dev.py | Four-line launcher for app.serve() on port 8001 |
+| backend/api/ask.py | One-line Vercel import of app.AskHandler |
+| backend/api/health.py | One-line Vercel import of app.HealthHandler |
 | backend/vercel.json | Vercel function settings and /health rewrite |
 | backend/requirements.txt | Python dependencies |
 | netlify.toml | Frontend build and publish settings |
 
-The small Vercel entrypoints use inheritance: their classes contain "pass" because the implementation lives in the shared handlers. Locally, dev.py imports those shared handlers directly. On Vercel, the platform runs the functions; do not start dev.py there.
+The application logic is deliberately kept in one Python file, backend/app.py. The three tiny entrypoints preserve your existing local command and Vercel routes; they contain no duplicate logic. Locally, python backend/dev.py and python backend/app.py are equivalent. On Vercel, the platform runs the functions; do not start a local server there. The old evidence.py, pubmed.py and http_api.py modules have been removed.
 
 The frontend server only serves files. JavaScript runs in the browser and calls the backend directly. Different ports/domains require CORS permission. CORS is not authentication and does not prevent requests from scripts.
 
@@ -55,7 +70,7 @@ The frontend server only serves files. JavaScript runs in the browser and calls 
 
 ### 1. Activate the Python environment
 
-Requirements: Python 3.10+ and Node.js 18+. This Mac's LangChain environment uses Python 3.11; Vercel is configured for Python 3.12.
+Requirements: Python 3.11+ and Node.js 18+. This Mac's LangChain environment uses Python 3.11; Vercel is configured for Python 3.12.
 
 Open Terminal 1 and enter the project directory:
 
@@ -80,24 +95,26 @@ python -m pip install -r backend/requirements.txt
 
 The Python path must end in **maternity/backend/.venv-langchain/bin/python**. Your prompt will usually show (.venv-langchain). Activation applies only to this terminal. Use .venv-langchain, not the older .venv environment.
 
-Use an installed Python 3.10+ interpreter if python3.11 is unavailable. Node.js 18+ is sufficient for the frontend build script; use a currently supported Node.js LTS release for installing hosting CLIs. If you move the project again, virtual environments may retain absolute paths; recreate the environment at the new location rather than committing it to Git.
+Use an installed Python 3.11+ interpreter if python3.11 is unavailable. Node.js 18+ is sufficient for the frontend build script; use a currently supported Node.js LTS release for installing hosting CLIs. If you move the project again, virtual environments may retain absolute paths; recreate the environment at the new location rather than committing it to Git.
 
-### 2. Put your Groq key in backend/.env
+### 2. Put your Groq key and NCBI contact email in backend/.env
 
 Open backend/.env in your editor. On a fresh clone, create it using backend/.env.example as a template. Keep these settings:
 
 ~~~dotenv
 GROQ_API_KEY=your_actual_groq_key
 GROQ_MODEL=openai/gpt-oss-120b
+NCBI_EMAIL=your_actual_contact_email
+NCBI_API_KEY=
 ALLOWED_ORIGINS=https://fantastic-youtiao-51e03c.netlify.app,http://localhost:8080,http://127.0.0.1:8080,http://localhost:8082,http://127.0.0.1:8082
 ~~~
 
-Replace only the key placeholder with your actual key. No terminal key entry is required.
+Replace the Groq key and contact email placeholders in your editor. NCBI_EMAIL must be a real contact email, not the example placeholder. NCBI_API_KEY is optional and is a separate NCBI key; do not put your Groq key there. No terminal key entry is required.
 
 The backend loads backend/.env at startup, independent of the working directory. Existing environment variables take precedence. If you previously exported these settings in Terminal 1, clear them once before starting:
 
 ~~~bash
-unset GROQ_API_KEY GROQ_MODEL ALLOWED_ORIGINS
+unset GROQ_API_KEY GROQ_MODEL NCBI_EMAIL NCBI_API_KEY ALLOWED_ORIGINS
 ~~~
 
 Never put the key in config.js, app.js, or HTML. .gitignore and .vercelignore exclude .env files; the frontend build publishes only an explicit list of public files. Production uses Vercel environment variables, not your local .env file.
@@ -113,10 +130,10 @@ python backend/dev.py
 Keep this terminal running. Open http://localhost:8001/health. The expected response after adding your key is:
 
 ~~~json
-{"status":"ok","provider":"groq","configured":true}
+{"status":"ok","provider":"groq","configured":true,"pubmed_configured":true}
 ~~~
 
-This confirms the key is present, not that Groq accepts it. The backend root http://localhost:8001/ is not a homepage and returns "Method not allowed". Restart the backend after editing Python files or .env; dev.py does not auto-reload.
+This confirms the key is present and a contact email is configured, not that either remote service is reachable. The backend root http://localhost:8001/ is not a homepage and returns "Method not allowed". Restart the backend after editing Python files or .env; dev.py does not auto-reload.
 
 ### 4. Test an actual Groq call
 
@@ -126,7 +143,7 @@ Open Terminal 2:
 cd /Users/srijaydeshpande/Desktop/Srijay/codes/maternity
 curl -i http://localhost:8001/api/ask \
   -H 'Content-Type: application/json' \
-  -d '{"question":"Reply with: ready"}'
+  -d '{"action":"test"}'
 ~~~
 
 Expect HTTP 200 and JSON with answer and model. This test calls Groq and uses provider quota. The model is hosted by Groq even though its name starts with openai/.
@@ -140,7 +157,23 @@ node scripts/build-frontend.mjs
 python3 -m http.server 8080 --bind 127.0.0.1 --directory dist
 ~~~
 
-Open **http://localhost:8080**, click **Test LLM**, then submit a non-urgent question. Urgent questions use built-in guidance and do not verify Groq connectivity.
+Open **http://localhost:8080**, click **Test LLM**, then submit a non-urgent question. In Maternity support, confirm there is a direct answer and next steps without citations or papers. In Clinical research, confirm Overall answer appears before What the papers report; follow evidence links and expand Search record. Urgent questions use built-in guidance and do not verify Groq connectivity.
+
+For a complete evidence request from Terminal 2 before starting its frontend server:
+
+~~~bash
+curl -i http://localhost:8001/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"mother","question":"What does research say about exercise during pregnancy?"}'
+
+curl -i http://localhost:8001/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"clinician","question":"What do reviews report about exercise and gestational diabetes prevention?"}'
+~~~
+
+These requests use Groq quota and send clinical search terms to NCBI. Both successful modes return status complete, answer, next_steps, limitations, agent and usage. Clinical responses additionally include overview, overview_pmids, findings with PMIDs, sources and searches; answer duplicates overview for compatibility. Maternity responses contain no findings or citation IDs, and sources/searches are empty. No usable abstracts returns no_evidence; invalid output or clinical citations return unverified with the answer withheld. Neither is proof that no relevant research exists.
+
+After changing Python, restart your backend terminal with Ctrl+C and python backend/dev.py from the project root in the activated environment. After frontend changes, run node scripts/build-frontend.mjs again and refresh the browser; the running static server can keep serving dist/. For this response-format update, redeploy both the Vercel backend and the Netlify frontend using the existing projects below. No new environment variables or URL changes are needed.
 
 config.js detects localhost and leaves apiBaseUrl empty there; app.js then uses http://localhost:8001. When hosted on Netlify, the same configuration uses https://maternity-taupe.vercel.app. You do not need to switch configuration values between local testing and deployment.
 
@@ -188,7 +221,7 @@ cd backend
 python -m unittest discover -s tests -v
 ~~~
 
-These tests mock Groq responses and do not spend API quota. They cover request validation, health, CORS, urgent-response bypass, the LangChain/OpenAI request format, and provider errors.
+These tests mock external Groq/PubMed responses but execute the real LangChain agent and OpenAI client. They verify that only the selected specialist is invoked, clinical overviews and citations are validated, maternity answers omit evidence metadata, and mode-specific context is isolated. They also cover hard model/tool limits, input validation, CORS, urgent bypass, PubMed parsing, error recovery and sanitized failures. They do not spend API quota or establish medical accuracy.
 
 ## Vercel deployment
 
@@ -226,6 +259,8 @@ In the Vercel project's Settings > Environment Variables, enter:
 | --- | --- |
 | GROQ_API_KEY | Your actual Groq key |
 | GROQ_MODEL | openai/gpt-oss-120b |
+| NCBI_EMAIL | Your real contact email for NCBI |
+| NCBI_API_KEY | Optional NCBI API key, separate from Groq |
 | ALLOWED_ORIGINS | https://fantastic-youtiao-51e03c.netlify.app |
 
 Select Production. Add Preview values separately if testing preview deployments. Use the actual current Netlify origin if renamed; multiple origins are comma-separated, without paths or trailing slashes.
@@ -250,10 +285,10 @@ Both should return JSON with status "ok". Then test a real answer:
 ~~~bash
 curl -i https://maternity-taupe.vercel.app/api/ask \
   -H 'Content-Type: application/json' \
-  -d '{"question":"Reply with: ready"}'
+  -d '{"action":"test"}'
 ~~~
 
-Expect HTTP 200 with answer and model. Do not assume a Ready deployment or a configured health check proves Groq calls work.
+Expect HTTP 200 with status test, answer and model. Then repeat the evidence curl examples above using https://maternity-taupe.vercel.app instead of http://localhost:8001. Do not assume a Ready deployment or a successful Test LLM proves PubMed retrieval works.
 
 Opening **https://maternity-taupe.vercel.app/** may show "This page doesn't exist": there is no root homepage in the backend. There is also no /docs page. The website itself lives on Netlify.
 
@@ -339,7 +374,7 @@ The Groq key belongs only on Vercel. Remove obsolete Netlify Groq variables afte
 
 1. Confirm the Vercel health and real-answer tests pass.
 2. Open https://fantastic-youtiao-51e03c.netlify.app and click Test LLM.
-3. Submit a non-urgent question.
+3. Submit a non-urgent question in each workspace. Check the sources, abstracts and Search record, not only Test LLM.
 4. In browser Developer Tools > Network, inspect the ask request. It should go to https://maternity-taupe.vercel.app/api/ask, not localhost.
 5. Stop your local servers and reload the deployed website. It should still work.
 
@@ -383,8 +418,13 @@ Pushing main can trigger both connected hosting projects. Wait for their deploym
 | Key rejected | Correct GROQ_API_KEY in local .env or Vercel settings, then restart/redeploy |
 | Model unavailable | Choose an enabled Groq model, update GROQ_MODEL, then restart/redeploy |
 | Health says configured but answers fail | Health only checks key presence; use the real POST test |
-| Groq rate limit / 429 | Wait or review provider quota |
-| API timeout | Groq timeout is 25 seconds; browser deadline is 35 seconds |
+| Groq rate limit / 429 | Wait at least the displayed retry interval, when supplied by Groq. Check your organization limits in the Groq console; repeated retries and Test LLM also use quota. |
+| Test LLM works but evidence fails | Set NCBI_EMAIL, restart/redeploy, and check PubMed connectivity |
+| Answer withheld | Generated citations/JSON failed validation; inspect retrieved abstracts or retry |
+| Groq could not produce a valid research tool call | Provider rejected a generated tool call (provider_tool_error); ensure the latest backend code is running |
+| Backend encountered an internal error | Check the backend terminal or Vercel logs for the exception class and file/line locations; questions and raw provider errors are not logged |
+| No usable evidence | The limited search returned no usable abstracts; refine the question/query |
+| API timeout | Groq calls allow up to 12 seconds each; workflow budget 48 seconds; browser deadline 57 seconds |
 | Frontend edits not visible | Rebuild dist/ and refresh locally; rebuild/redeploy Netlify in production |
 | Backend edits not visible | Restart dev.py locally or redeploy Vercel |
 | .env edits not taking effect | Restart Python; clear previously exported variables that override the file |
@@ -397,7 +437,18 @@ Do not rely on error messages alone to verify where requests go: the browser Net
 
 ## Project limitations and hosting
 
-This is an educational prototype. Existing urgent-keyword checks are not clinically validated triage. The app does not yet retrieve PubMed articles, store conversation history, or implement authentication and shared rate limiting. LangChain orchestrates the model call; it does not automatically add research retrieval.
+This remains an educational research prototype, not a clinically validated maternity service.
+
+- Clinical citation validation proves that an ID belongs to a retrieved, non-flagged abstract. It does not validate relevance, statistical interpretation or claim support. The clinical overview also uses model knowledge, which may be outdated or wrong; overview references do not verify every statement. Maternity answers are not claim-verified merely because retrieval happened. Clinical review and medical safety evaluations are required before use in care.
+- Only abstracts are retrieved. No full-text or local guideline retrieval, systematic review, formal risk-of-bias assessment or certainty grading is implemented. Publication types are NCBI metadata, not automatic quality ratings.
+- Missing abstracts and indexed retraction/expression-of-concern notices are excluded from synthesis. Indexing may be incomplete; check original publications and subsequent notices.
+- Safety checks are conservative English keywords, not validated triage. They can miss emergencies (especially other languages) and flag negated or educational questions. Clinical mode does not run the maternity warning classifier. No emergency should depend on the app responding.
+- Each question is independent. Questions are not saved by this app; Groq receives the submitted context, NCBI receives search terms/contact email, and hosting/providers may retain operational data under their policies. Avoid personal identifiers and patient data. Keep LangSmith tracing disabled for sensitive data.
+- Both modes use LangChain create_agent with one invocation and its built-in ModelCallLimitMiddleware and ToolCallLimitMiddleware. MAX_MODEL_CALLS, MAX_TOOL_CALLS and MAX_PAPERS in backend/app.py are 4, 4 and 3. Tool-limit accounting includes the structured-output tool. No shell or arbitrary web-fetch tools are exposed. The provider's automatic retries and structured-output retries are disabled.
+- Planning calls allow 1,000 completion tokens, synthesis allows 2,400 and Test LLM allows 256. These are ceilings, not guaranteed usage. Groq limits are shared at organization level and can still be reached. A 429 response includes retry_after seconds when Groq supplies a valid Retry-After header; the app does not automatically retry or sleep inside the Vercel function.
+- Retrieval uses 8-second socket timeouts, a 1 MB response cap, 5,000-character abstract excerpts and no automatic retries. A 48-second workflow budget gates new calls. Network read timeouts are not a hard end-to-end deadline; Vercel's 60-second function cap is the final limit.
+- Bio.Entrez rate limiting is serialized per Python process. It is not a distributed quota across Vercel instances. Add a shared limiter/cache and provider spending limits before public traffic. CORS is not abuse protection. Authentication, bot protection and shared rate limiting are not implemented.
+- Before a public clinical launch, add clinician-reviewed escalation guidance, multilingual safety evaluation, privacy/consent review, security/abuse controls and evidence-quality evaluation.
 
 Vercel Hobby is intended for personal, non-commercial use within its limits. Groq usage and quotas are separate from website hosting. Check provider terms before launching a commercial service.
 
@@ -410,4 +461,8 @@ Vercel Hobby is intended for personal, non-commercial use within its limits. Gro
 - [Netlify deployment methods](https://docs.netlify.com/deploy/create-deploys/)
 - [LangChain ChatOpenAI integration](https://docs.langchain.com/oss/python/integrations/chat/openai)
 - [Groq OpenAI compatibility](https://console.groq.com/docs/openai)
+- [LangChain tool calling](https://docs.langchain.com/oss/python/langchain/models)
+- [Biopython Entrez](https://biopython.org/docs/latest/api/Bio.Entrez.html)
+- [PubMed search help](https://pubmed.ncbi.nlm.nih.gov/help/)
+- [CDC urgent maternal warning signs](https://www.cdc.gov/hearher/maternal-warning-signs/index.html)
 - [Vercel fair-use rules](https://vercel.com/docs/limits/fair-use-guidelines)

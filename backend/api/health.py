@@ -1,5 +1,1 @@
-from http_api import HealthHandler
-
-
-class handler(HealthHandler):
-    pass
+from app import HealthHandler as handler

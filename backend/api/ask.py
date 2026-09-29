@@ -1,5 +1,1 @@
-from http_api import AskHandler
-
-
-class handler(AskHandler):
-    pass
+from app import AskHandler as handler

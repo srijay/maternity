@@ -40,6 +40,7 @@ class BackendTests(unittest.TestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {
             "GROQ_API_KEY": "test-key", "GROQ_MODEL": "configured-model",
+            "NCBI_EMAIL": "contact@institution.test",
             "ALLOWED_ORIGINS": "https://fantastic-youtiao-51e03c.netlify.app",
             "LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING_V2": "false",
         })
@@ -93,18 +94,18 @@ class BackendTests(unittest.TestCase):
 
         client = httpx.Client(transport=httpx.MockTransport(groq))
         with patch("app.HttpClient", return_value=client):
-            status, _, body = request(payload={"question": "Hello {name}", "week": "20", "model": "ignored-model"})
+            status, _, body = request(payload={"action": "test", "question": "Do not send this", "model": "ignored-model"})
         self.assertEqual(status, 200)
-        self.assertEqual(body, {"answer": "Test answer", "model": "configured-model"})
+        self.assertEqual(body, {"status": "test", "answer": "LLM connection successful.", "model": "configured-model"})
         self.assertEqual(len(captured), 1)
         self.assertEqual(str(captured[0].url), "https://api.groq.com/openai/v1/chat/completions")
         self.assertEqual(captured[0].headers["Authorization"], "Bearer test-key")
         sent = json.loads(captured[0].content)
         self.assertEqual(sent["model"], "configured-model")
-        self.assertEqual(sent["max_completion_tokens"], 700)
+        self.assertEqual(sent["max_completion_tokens"], 256)
         self.assertEqual(sent["messages"][0]["role"], "system")
-        self.assertIn("Pregnancy week: 20", sent["messages"][1]["content"])
-        self.assertIn("Hello {name}", sent["messages"][1]["content"])
+        self.assertEqual(sent["messages"][1]["content"], "Connection test")
+        self.assertNotIn("Do not send this", str(sent))
         self.assertTrue(client.is_closed)
 
     def test_provider_failures(self):
@@ -113,7 +114,7 @@ class BackendTests(unittest.TestCase):
                 lambda req: httpx.Response(provider_status, json={"error": {"message": "sensitive detail"}})
             ))
             with patch("app.HttpClient", return_value=client):
-                status, _, body = request(payload={"question": "Hello"})
+                status, _, body = request(payload={"action": "test"})
             self.assertEqual(status, expected)
             self.assertNotIn("sensitive", body["error"])
             if provider_status == 404:
@@ -127,7 +128,71 @@ class BackendTests(unittest.TestCase):
 
         client = httpx.Client(transport=httpx.MockTransport(timeout))
         with patch("app.HttpClient", return_value=client):
-            self.assertEqual(request(payload={"question": "Hello"})[0], 504)
+            self.assertEqual(request(payload={"action": "test"})[0], 504)
+
+    def test_rate_limit_retry_guidance(self):
+        captured = []
+        def limited(req):
+            captured.append(req)
+            return httpx.Response(429, headers={"retry-after": "12.2"},
+                                  json={"error": {"message": "private provider details"}})
+        client = httpx.Client(transport=httpx.MockTransport(limited))
+        with patch("app.HttpClient", return_value=client):
+            status, headers, body = request(payload={"action": "test"})
+        self.assertEqual(status, 429)
+        self.assertEqual(body["code"], "rate_limited")
+        self.assertEqual(body["retry_after"], 13)
+        self.assertEqual(headers["Retry-After"], "13")
+        self.assertIn("13 seconds", body["error"])
+        self.assertNotIn("private", str(body))
+        self.assertEqual(len(captured), 1)
+
+    def test_invalid_retry_headers_do_not_invent_reset_times(self):
+        for value in ["", "invalid", "NaN", "Infinity", "-1", "999999999"]:
+            client = httpx.Client(transport=httpx.MockTransport(
+                lambda req: httpx.Response(429, headers={"retry-after": value}, json={"error": {"message": "private"}})
+            ))
+            with patch("app.HttpClient", return_value=client):
+                status, headers, body = request(payload={"action": "test"})
+            self.assertEqual(status, 429)
+            self.assertNotIn("retry_after", body)
+            self.assertNotIn("Retry-After", headers)
+            self.assertIn("quota", body["error"])
+
+    def test_modes_and_configuration(self):
+        for payload in [{"mode": "invalid", "question": "Hello"}, {"action": "other"}]:
+            self.assertEqual(request(payload=payload)[0], 400)
+        with patch.dict(os.environ, {"NCBI_EMAIL": ""}):
+            status, _, body = request(payload={"question": "Nutrition"})
+            self.assertEqual(status, 503)
+            self.assertIn("NCBI_EMAIL", body["error"])
+        with patch("app.run_agent", return_value={"status": "no_evidence", "answer": "No evidence"}) as agent:
+            status, _, body = request(payload={"question": "Research on postpartum bleeding", "mode": "clinician"})
+            self.assertEqual(status, 200)
+            agent.assert_called_once()
+
+    def test_unexpected_failure_is_sanitized(self):
+        with patch("app.ask", side_effect=RuntimeError("secret")), self.assertLogs("app", level="ERROR") as logs:
+            status, _, body = request(payload={"question": "Nutrition"})
+        self.assertEqual(status, 500)
+        self.assertEqual(body["code"], "internal_error")
+        self.assertNotIn("secret", str(body))
+        self.assertIn("RuntimeError", str(logs.output))
+        self.assertNotIn("secret", str(logs.output))
+
+    def test_provider_tool_failure_is_identifiable_without_raw_details(self):
+        client = httpx.Client(transport=httpx.MockTransport(
+            lambda req: httpx.Response(400, json={"error": {
+                "code": "tool_use_failed", "message": "private provider data",
+                "failed_generation": "private question",
+            }})
+        ))
+        with patch("app.HttpClient", return_value=client):
+            status, _, body = request(payload={"action": "test"})
+        self.assertEqual(status, 502)
+        self.assertEqual(body["code"], "provider_tool_error")
+        self.assertEqual(body["provider_status"], 400)
+        self.assertNotIn("private", str(body))
 
     def test_cors(self):
         for origin, allowed in [("https://fantastic-youtiao-51e03c.netlify.app", True), ("https://unrelated.example", False)]:

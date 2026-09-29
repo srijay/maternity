@@ -56,8 +56,8 @@ Browser running app.js
 | scripts/build-frontend.mjs | Copies only public frontend files into dist/ |
 | backend/app.py | All backend logic: configuration, two specialist agents, shared PubMed tools, answer validation, HTTP handlers and local server |
 | backend/dev.py | Four-line launcher for app.serve() on port 8001 |
-| backend/api/ask.py | One-line Vercel import of app.AskHandler |
-| backend/api/health.py | One-line Vercel import of app.HealthHandler |
+| backend/api/ask.py | Explicit handler class inheriting app.AskHandler for Vercel discovery |
+| backend/api/health.py | Explicit handler class inheriting app.HealthHandler for Vercel discovery |
 | backend/vercel.json | Vercel function settings and /health rewrite |
 | backend/requirements.txt | Python dependencies |
 | netlify.toml | Frontend build and publish settings |
@@ -251,6 +251,8 @@ Remove any old FastAPI framework/build overrides. This project uses file-based P
 
 Vercel maps api/ask.py to /api/ask and api/health.py to /api/health. The included vercel.json rewrites /health to /api/health and sets a 60-second function limit.
 
+Keep the explicit `class handler(...)` definitions in both API files. Their `pass` bodies inherit all behavior from app.py. Vercel's static entrypoint analyzer does not recognize our previous `from app import AskHandler as handler` / `HealthHandler` aliases, even though they work in Python locally. This can cause `The pattern "api/*.py" defined in functions doesn't match any Serverless Functions`. Do not remove the functions configuration or change the glob to hide that error. Push the explicit handler classes and deploy the new commit, with Root Directory `backend` and Framework Preset `Other`. See [Vercel's entrypoint analyzer](https://github.com/vercel/vercel/blob/main/packages/fs-detectors/src/python.ts).
+
 ### 3. Add production environment variables
 
 In the Vercel project's Settings > Environment Variables, enter:
@@ -420,6 +422,7 @@ Pushing main can trigger both connected hosting projects. Wait for their deploym
 | Health says configured but answers fail | Health only checks key presence; use the real POST test |
 | Groq rate limit / 429 | Wait at least the displayed retry interval, when supplied by Groq. Check your organization limits in the Groq console; repeated retries and Test LLM also use quota. |
 | Test LLM works but evidence fails | Set NCBI_EMAIL, restart/redeploy, and check PubMed connectivity |
+| functions pattern api/*.py matches no Serverless Functions | Confirm the deployed API files contain explicit class handler definitions, Root Directory is backend, and Framework Preset is Other; redeploy the corrected commit |
 | Answer withheld | Generated citations/JSON failed validation; inspect retrieved abstracts or retry |
 | Groq could not produce a valid research tool call | Provider rejected a generated tool call (provider_tool_error); ensure the latest backend code is running |
 | Backend encountered an internal error | Check the backend terminal or Vercel logs for the exception class and file/line locations; questions and raw provider errors are not logged |

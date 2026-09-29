@@ -1,8 +1,10 @@
+import ast
 import io
 import json
 import os
 import unittest
 from http.client import HTTPResponse
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -37,6 +39,17 @@ def request(method="POST", payload=None, headers=None, raw=None, handler=AskHand
 
 
 class BackendTests(unittest.TestCase):
+    def test_vercel_entrypoints_define_discoverable_handler_classes(self):
+        # Vercel's static analyzer does not recognize import-only handler aliases.
+        root = Path(__file__).resolve().parents[1]
+        for name, handler, base in [("ask", AskHandler, "AskHandler"), ("health", HealthHandler, "HealthHandler")]:
+            tree = ast.parse((root / "api" / f"{name}.py").read_text())
+            classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "handler"]
+            self.assertEqual(len(classes), 1)
+            self.assertEqual(classes[0].bases[0].id, base)
+            self.assertEqual(handler.__module__, f"api.{name}")
+            self.assertEqual(handler.__name__, "handler")
+
     def setUp(self):
         self.env = patch.dict(os.environ, {
             "GROQ_API_KEY": "test-key", "GROQ_MODEL": "configured-model",

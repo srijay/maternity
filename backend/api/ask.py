@@ -1,1 +1,5 @@
-from app import AskHandler as handler
+from app import AskHandler
+
+
+class handler(AskHandler):
+    pass
